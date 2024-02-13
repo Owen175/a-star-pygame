@@ -5,8 +5,8 @@ import time
 class Pathfinding:
     def __init__(self, pause: float = 0.0):
         self.pause = pause
-        self.grid_x, self.grid_y = 60, 60
-        self.tile_size = 15
+        self.grid_x, self.grid_y = 10, 10
+        self.tile_size = 90
         self.screen_size = self.grid_x * self.tile_size, self.grid_y * self.tile_size
         # To be added to the checked_locations list
         pygame.init()
@@ -29,15 +29,12 @@ class Pathfinding:
                 if event.type == pygame.MOUSEBUTTONUP:
                     x, y = pygame.mouse.get_pos()
                     x, y = x // self.tile_size, y // self.tile_size
-                    rect = pygame.Rect(x * self.tile_size + 1, y * self.tile_size + 1, self.tile_size - 2,
-                                       self.tile_size - 2)
                     if [x, y] in locations:
                         locations.remove([x, y])
-                        pygame.draw.rect(self.screen, (0, 0, 0), rect)
+                        self.colour_tile(self.BLACK, x, y, update=True)
                     else:
                         locations.append([x, y])
-                        pygame.draw.rect(self.screen, self.GRAY, rect)
-                    pygame.display.flip()
+                        self.colour_tile(self.GRAY, x, y, update=True)
                 if event.type == pygame.WINDOWCLOSE:
                     exit()
         return locations
@@ -46,12 +43,10 @@ class Pathfinding:
         self.screen.fill(self.WHITE)
         for x in range(self.grid_x):
             for y in range(self.grid_y):
-                rect = pygame.Rect(x * self.tile_size + 1, y * self.tile_size + 1, self.tile_size - 2,
-                                   self.tile_size - 2)
-                pygame.draw.rect(self.screen, self.BLACK, rect)
+                self.colour_tile(self.BLACK, x, y)
         pygame.display.flip()
 
-    def colour_tile(self, colour: tuple[int], x: int, y: int, update: bool = False) -> None:
+    def colour_tile(self, colour: tuple[int, int, int], x: int, y: int, update: bool = False) -> None:
         rect = pygame.Rect(x * self.tile_size + 1, y * self.tile_size + 1, self.tile_size - 2,
                            self.tile_size - 2)
         pygame.draw.rect(self.screen, colour, rect)
@@ -59,7 +54,38 @@ class Pathfinding:
             pygame.display.update((x * self.tile_size + 1, y * self.tile_size + 1),
                                   (self.tile_size - 2, self.tile_size - 2))
 
-    def pathfind(self, start_point: list[int], end_point: list[int], pause: float = 0) -> None:
+    def update_stack(self, stack: list[list[int]], parent_dict: dict, px: int, py: int, x: int, y: int) \
+            -> list[list[int]]:
+        if [px, py] == stack[-1]:
+            stack.append([x, y])
+        elif [px, py] in stack:
+            stack = stack[:stack.index([px, py]) + 1]
+            stack.append([x, y])
+        else:
+            appending = [(x, y), (px, py)]
+            ppx, ppy = parent_dict[(px, py)]
+            while [ppx, ppy] not in stack:
+                appending.append([ppx, ppy])
+                ppx, ppy = parent_dict[(ppx, ppy)]
+            stack = stack[:stack.index([ppx, ppy]) + 1]
+            appending.reverse()
+            stack.extend(appending)
+        return stack
+
+    def insert_(self, hg_list: list[list[int | list[int]]], point_hg: int, temp_x: int, temp_y: int, x: int, y: int,
+                g: int) -> list[list[int | list[int]]]:
+        if len(hg_list) == 0:
+            return [[temp_x, temp_y, [point_hg, g], x, y]]
+        ls = hg_list[:]
+        if ls[-1][2][0] < point_hg:
+            ls.append([temp_x, temp_y, [point_hg, g], x, y])
+        else:
+            for i, (_, _, [list_hg, _], _, _) in enumerate(ls):
+                if list_hg >= point_hg:
+                    ls.insert(i, [temp_x, temp_y, [point_hg, g], x, y])
+                    break
+        return ls
+    def pathfind(self, start_point: list[int], end_point: list[int]) -> None:
         # lowest h(n) + g(n) - insert into sorted list and always pick the least to explore tiles around
         # Store g with each value, so that it can be incremented and evaluated
         # need to append the point to an explored list also
@@ -72,64 +98,40 @@ class Pathfinding:
         for x, y, _, px, py in hg_list:
             parent_dict[(x, y)] = (px, py)
         hg_list.sort(key=lambda a: a[2][0])
+
         game_end = False
         while len(hg_list) != 0:
             if self.pause:
-                time.sleep(pause)
+                time.sleep(self.pause)
             old_stack = stack[:]
-            # is double checking when there is no path
-            x, y, _, px, py = hg_list.pop(0)
+            # is double-checking when there is no path
+            print(hg_list[0])
+            temp = hg_list.pop(0)
+            x, y, _, px, py = temp
+            # except:
+            #     print(temp)
             hg, g = _
-            if [px, py] == stack[-1]:
-                stack.append([x, y])
-            elif [px, py] in stack:
-                stack = stack[:stack.index([px, py]) + 1]
-                stack.append([x, y])
-            else:
-                appending = [(x, y), (px, py)]
-                ppx, ppy = parent_dict[(px, py)]
-                while [ppx, ppy] not in stack:
-                    appending.append([ppx, ppy])
-                    ppx, ppy = parent_dict[(ppx, ppy)]
-                stack = stack[:stack.index([ppx, ppy]) + 1]
-                appending.reverse()
-                stack.extend(appending)
+            stack = self.update_stack(stack, parent_dict, px, py, x, y)
 
             if [x, y] == end_point:
                 game_end = True
                 break
             for temp_x, temp_y in self.get_unchecked_neighbours(x, y, checked_list, hg_list):
                 point_hg = self.evaluate_point(temp_x, temp_y, g + 1, end_point)[0]
-                if len(hg_list) == 0:
-                    hg_list.append([temp_x, temp_y, [point_hg, g + 1], x, y])
-                elif hg_list[-1][2][0] < point_hg:
-                    hg_list.append([temp_x, temp_y, [point_hg, g + 1], x, y])
-                else:
-                    for i, (_, _, [list_hg, _], _, _) in enumerate(hg_list):
-                        if list_hg >= point_hg:
-                            hg_list.insert(i, [temp_x, temp_y, [point_hg, g + 1], x, y])
-                            break
+                hg_list = self.insert_(hg_list, point_hg, temp_x, temp_y, x, y, g + 1)
                 parent_dict[(temp_x, temp_y)] = (x, y)
-                rect = pygame.Rect(temp_x * self.tile_size + 1, temp_y * self.tile_size + 1, self.tile_size - 2,
-                                   self.tile_size - 2)
-                pygame.draw.rect(self.screen, self.BLUE, rect)
-                pygame.display.flip()
+                self.colour_tile(self.BLUE, temp_x, temp_y)
 
             checked_list.append([x, y])
-            rect = pygame.Rect(x * self.tile_size + 1, y * self.tile_size + 1, self.tile_size - 2, self.tile_size - 2)
-            pygame.draw.rect(self.screen, self.RED, rect)
+            self.colour_tile(self.RED, x, y)
             self.draw_stack(stack, old_stack)
             pygame.display.flip()
 
         if game_end:
             print('Got there')
-            rect = pygame.Rect(end_point[0] * self.tile_size + 1, end_point[1] * self.tile_size + 1, self.tile_size - 2,
-                               self.tile_size - 2)
-            pygame.draw.rect(self.screen, self.PURPLE, rect)
+            self.colour_tile(self.PURPLE, end_point[0], end_point[1])
             for x, y in stack[:-1]:
-                rect = pygame.Rect(x * self.tile_size + 1, y * self.tile_size + 1, self.tile_size - 2,
-                                   self.tile_size - 2)
-                pygame.draw.rect(self.screen, self.GREEN, rect)
+                self.colour_tile(self.GREEN, x, y)
             pygame.display.flip()
         else:
             print('Not possible')
@@ -147,12 +149,9 @@ class Pathfinding:
         stack_changes = stack[c:]
         old_stack_changes = old_stack[c:]
         for x, y in old_stack_changes:
-            rect = pygame.Rect(x * self.tile_size + 1, y * self.tile_size + 1, self.tile_size - 2,
-                               self.tile_size - 2)
-            pygame.draw.rect(self.screen, self.RED, rect)
+            self.colour_tile(self.RED, x, y)
         for x, y in stack_changes:
-            rect = pygame.Rect(x * self.tile_size + 1, y * self.tile_size + 1, self.tile_size - 2, self.tile_size - 2)
-            pygame.draw.rect(self.screen, self.GREEN, rect)
+            self.colour_tile(self.GREEN, x, y)
 
     def get_unchecked_neighbours(self, x: int, y: int, checked_list: list[list[int]], hg_list) -> list[list[int]]:
         neighbours = []
@@ -176,6 +175,7 @@ class Pathfinding:
     def h(x: int, y: int, end_point: list[int]) -> int:
         return abs(x - end_point[0]) + abs(y - end_point[1])
         # Manhattan distance
+
 
 if __name__ == '__main__':
     p = Pathfinding()
